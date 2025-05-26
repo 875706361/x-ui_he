@@ -1,13 +1,13 @@
 package service
 
 import (
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 	"x-ui/database"
 	"x-ui/database/model"
 	"x-ui/logger"
@@ -32,6 +32,13 @@ var defaultValueMap = map[string]string{
 }
 
 type SettingService struct {
+	ctx context.Context
+}
+
+func NewSettingService(ctx context.Context) *SettingService {
+	return &SettingService{
+		ctx: ctx,
+	}
 }
 
 func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
@@ -108,6 +115,7 @@ func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 }
 
 func (s *SettingService) ResetSettings() error {
+	logger.Info("重置所有设置到默认值")
 	db := database.GetDB()
 	return db.Where("1 = 1").Delete(model.Setting{}).Error
 }
@@ -181,6 +189,7 @@ func (s *SettingService) GetPort() (int, error) {
 }
 
 func (s *SettingService) SetPort(port int) error {
+	logger.Info("设置面板端口:", port)
 	return s.setInt("webPort", port)
 }
 
@@ -217,18 +226,8 @@ func (s *SettingService) GetBasePath() (string, error) {
 	return basePath, nil
 }
 
-func (s *SettingService) GetTimeLocation() (*time.Location, error) {
-	l, err := s.getString("timeLocation")
-	if err != nil {
-		return nil, err
-	}
-	location, err := time.LoadLocation(l)
-	if err != nil {
-		defaultLocation := defaultValueMap["timeLocation"]
-		logger.Errorf("location <%v> not exist, using default location: %v", l, defaultLocation)
-		return time.LoadLocation(defaultLocation)
-	}
-	return location, nil
+func (s *SettingService) GetTimeLocation() (string, error) {
+	return s.getString("timeLocation")
 }
 
 func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {

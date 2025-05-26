@@ -2,8 +2,23 @@ package web
 
 import (
 	"context"
-	"crypto/tls"
 	"embed"
+	"fmt"
+	"html/template"
+	"io"
+	"io/fs"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+	"x-ui/config"
+	"x-ui/logger"
+	"x-ui/web/controller"
+	"x-ui/web/job"
+	"x-ui/web/service"
+
 	"github.com/BurntSushi/toml"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
@@ -11,22 +26,6 @@ import (
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"github.com/robfig/cron/v3"
 	"golang.org/x/text/language"
-	"html/template"
-	"io"
-	"io/fs"
-	"net"
-	"net/http"
-	"os"
-	"strconv"
-	"strings"
-	"time"
-	"x-ui/config"
-	"x-ui/logger"
-	"x-ui/util/common"
-	"x-ui/web/controller"
-	"x-ui/web/job"
-	"x-ui/web/network"
-	"x-ui/web/service"
 )
 
 //go:embed assets/*
@@ -38,7 +37,17 @@ var htmlFS embed.FS
 //go:embed translation/*
 var i18nFS embed.FS
 
-var startTime = time.Now()
+var (
+	startTime = time.Now()
+	version   = "Unknown"
+)
+
+const (
+	shutdownTimeout = 30 * time.Second
+	readTimeout     = 15 * time.Second
+	writeTimeout    = 15 * time.Second
+	maxHeaderBytes  = 1 << 20 // 1MB
+)
 
 type wrapAssetsFS struct {
 	embed.FS
@@ -92,14 +101,32 @@ type Server struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	started bool
+	mu      sync.Mutex
 }
 
 func NewServer() *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
-		ctx:    ctx,
-		cancel: cancel,
+		ctx:     ctx,
+		cancel:  cancel,
+		started: false,
 	}
+}
+
+func (s *Server) initializeServices() error {
+	s.xrayService = service.NewXrayService(s.ctx)
+	s.settingService = service.NewSettingService(s.ctx)
+	s.inboundService = service.NewInboundService(s.ctx)
+
+	return nil
+}
+
+func (s *Server) initializeControllers(router *gin.RouterGroup) {
+	s.index = controller.NewIndexController(router)
+	s.server = controller.NewServerController(router)
+	s.xui = controller.NewXUIController(router)
 }
 
 func (s *Server) getHtmlFiles() ([]string, error) {
@@ -107,7 +134,7 @@ func (s *Server) getHtmlFiles() ([]string, error) {
 	dir, _ := os.Getwd()
 	err := fs.WalkDir(os.DirFS(dir), "web/html", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("遍历HTML文件失败: %v", err)
 		}
 		if d.IsDir() {
 			return nil
@@ -125,13 +152,13 @@ func (s *Server) getHtmlTemplate(funcMap template.FuncMap) (*template.Template, 
 	t := template.New("").Funcs(funcMap)
 	err := fs.WalkDir(htmlFS, "html", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("遍历模板文件失败: %v", err)
 		}
 
 		if d.IsDir() {
 			newT, err := t.ParseFS(htmlFS, path+"/*.html")
 			if err != nil {
-				// ignore
+				logger.Warning("解析模板目录失败:", err)
 				return nil
 			}
 			t = newT
@@ -155,18 +182,30 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 
 	engine := gin.Default()
 
+	// 添加自定义中间件
+	engine.Use(s.recoveryMiddleware())
+	engine.Use(s.corsMiddleware())
+	engine.Use(s.securityHeadersMiddleware())
+
 	secret, err := s.settingService.GetSecret()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("获取密钥失败: %v", err)
 	}
 
 	basePath, err := s.settingService.GetBasePath()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("获取基础路径失败: %v", err)
 	}
 	assetsBasePath := basePath + "assets/"
 
 	store := cookie.NewStore(secret)
+	store.Options(sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 7, // 7天
+		Secure:   !config.IsDebug(),
+		HttpOnly: true,
+	})
+
 	engine.Use(sessions.Sessions("session", store))
 	engine.Use(func(c *gin.Context) {
 		c.Set("base_path", basePath)
@@ -177,13 +216,12 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 			c.Header("Cache-Control", "max-age=31536000")
 		}
 	})
-	err = s.initI18n(engine)
-	if err != nil {
-		return nil, err
+
+	if err := s.initI18n(engine); err != nil {
+		return nil, fmt.Errorf("初始化国际化失败: %v", err)
 	}
 
 	if config.IsDebug() {
-		// for develop
 		files, err := s.getHtmlFiles()
 		if err != nil {
 			return nil, err
@@ -191,7 +229,6 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		engine.LoadHTMLFiles(files...)
 		engine.StaticFS(basePath+"assets", http.FS(os.DirFS("web/assets")))
 	} else {
-		// for prod
 		t, err := s.getHtmlTemplate(engine.FuncMap)
 		if err != nil {
 			return nil, err
@@ -200,77 +237,80 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		engine.StaticFS(basePath+"assets", http.FS(&wrapAssetsFS{FS: assetsFS}))
 	}
 
-	g := engine.Group(basePath)
-
-	s.index = controller.NewIndexController(g)
-	s.server = controller.NewServerController(g)
-	s.xui = controller.NewXUIController(g)
+	router := engine.Group(basePath)
+	s.initializeControllers(router)
 
 	return engine, nil
+}
+
+func (s *Server) recoveryMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			if err := recover(); err != nil {
+				logger.Error("服务器发生严重错误:", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"message": "服务器内部错误",
+				})
+				c.Abort()
+			}
+		}()
+		c.Next()
+	}
+}
+
+func (s *Server) corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func (s *Server) securityHeadersMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Next()
+	}
 }
 
 func (s *Server) initI18n(engine *gin.Engine) error {
 	bundle := i18n.NewBundle(language.SimplifiedChinese)
 	bundle.RegisterUnmarshalFunc("toml", toml.Unmarshal)
+
 	err := fs.WalkDir(i18nFS, "translation", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("遍历翻译文件失败: %v", err)
 		}
 		if d.IsDir() {
 			return nil
 		}
 		data, err := i18nFS.ReadFile(path)
 		if err != nil {
-			return err
+			return fmt.Errorf("读取翻译文件失败: %v", err)
 		}
 		_, err = bundle.ParseMessageFileBytes(data, path)
-		return err
+		if err != nil {
+			return fmt.Errorf("解析翻译文件失败: %v", err)
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	findI18nParamNames := func(key string) []string {
-		names := make([]string, 0)
-		keyLen := len(key)
-		for i := 0; i < keyLen-1; i++ {
-			if key[i:i+2] == "{{" { // 判断开头 "{{"
-				j := i + 2
-				isFind := false
-				for ; j < keyLen-1; j++ {
-					if key[j:j+2] == "}}" { // 结尾 "}}"
-						isFind = true
-						break
-					}
-				}
-				if isFind {
-					names = append(names, key[i+3:j])
-				}
-			}
-		}
-		return names
-	}
-
-	var localizer *i18n.Localizer
-
-	engine.FuncMap["i18n"] = func(key string, params ...string) (string, error) {
-		names := findI18nParamNames(key)
-		if len(names) != len(params) {
-			return "", common.NewError("find names:", names, "---------- params:", params, "---------- num not equal")
-		}
-		templateData := map[string]interface{}{}
-		for i := range names {
-			templateData[names[i]] = params[i]
-		}
-		return localizer.Localize(&i18n.LocalizeConfig{
-			MessageID:    key,
-			TemplateData: templateData,
-		})
-	}
-
 	engine.Use(func(c *gin.Context) {
 		accept := c.GetHeader("Accept-Language")
-		localizer = i18n.NewLocalizer(bundle, accept)
+		localizer := i18n.NewLocalizer(bundle, accept)
 		c.Set("localizer", localizer)
 		c.Next()
 	})
@@ -278,111 +318,96 @@ func (s *Server) initI18n(engine *gin.Engine) error {
 	return nil
 }
 
-func (s *Server) startTask() {
-	err := s.xrayService.RestartXray(true)
-	if err != nil {
-		logger.Warning("start xray failed:", err)
+func (s *Server) startTask() error {
+	s.cron = cron.New(cron.WithSeconds())
+
+	// 添加定时任务
+	if _, err := s.cron.AddJob("@every 10s", job.NewCheckXrayRunningJob()); err != nil {
+		return fmt.Errorf("添加Xray运行状态检查任务失败: %v", err)
 	}
-	// 每 30 秒检查一次 xray 是否在运行
-	s.cron.AddJob("@every 30s", job.NewCheckXrayRunningJob())
+	if _, err := s.cron.AddJob("@every 1m", job.NewXrayTrafficJob(s.ctx)); err != nil {
+		return fmt.Errorf("添加流量统计任务失败: %v", err)
+	}
 
-	go func() {
-		time.Sleep(time.Second * 5)
-		// 每 10 秒统计一次流量，首次启动延迟 5 秒，与重启 xray 的时间错开
-		s.cron.AddJob("@every 10s", job.NewXrayTrafficJob())
-	}()
-
-	// 每 30 秒检查一次 inbound 流量超出和到期的情况
-	s.cron.AddJob("@every 30s", job.NewCheckInboundJob())
+	s.cron.Start()
+	return nil
 }
 
-func (s *Server) Start() (err error) {
-	defer func() {
-		if err != nil {
-			s.Stop()
-		}
-	}()
-
-	loc, err := s.settingService.GetTimeLocation()
-	if err != nil {
-		return err
+func (s *Server) Start() error {
+	s.mu.Lock()
+	if s.started {
+		s.mu.Unlock()
+		return fmt.Errorf("服务器已经在运行")
 	}
-	s.cron = cron.New(cron.WithLocation(loc), cron.WithSeconds())
-	s.cron.Start()
+	s.started = true
+	s.mu.Unlock()
+
+	if err := s.initializeServices(); err != nil {
+		return fmt.Errorf("初始化服务失败: %v", err)
+	}
 
 	engine, err := s.initRouter()
 	if err != nil {
-		return err
+		return fmt.Errorf("初始化路由失败: %v", err)
 	}
 
-	certFile, err := s.settingService.GetCertFile()
+	if err := s.startTask(); err != nil {
+		return fmt.Errorf("启动定时任务失败: %v", err)
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", 54321))
 	if err != nil {
-		return err
-	}
-	keyFile, err := s.settingService.GetKeyFile()
-	if err != nil {
-		return err
-	}
-	listen, err := s.settingService.GetListen()
-	if err != nil {
-		return err
-	}
-	port, err := s.settingService.GetPort()
-	if err != nil {
-		return err
-	}
-	listenAddr := net.JoinHostPort(listen, strconv.Itoa(port))
-	listener, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		return err
-	}
-	if certFile != "" || keyFile != "" {
-		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-		if err != nil {
-			listener.Close()
-			return err
-		}
-		c := &tls.Config{
-			Certificates: []tls.Certificate{cert},
-		}
-		listener = network.NewAutoHttpsListener(listener)
-		listener = tls.NewListener(listener, c)
-	}
-	if certFile != "" || keyFile != "" {
-		logger.Info("web server run https on", listener.Addr())
-	} else {
-		logger.Info("web server run http on", listener.Addr())
+		return fmt.Errorf("监听端口失败: %v", err)
 	}
 	s.listener = listener
 
-	s.startTask()
-
 	s.httpServer = &http.Server{
-		Handler: engine,
+		Handler:        engine,
+		ReadTimeout:    readTimeout,
+		WriteTimeout:   writeTimeout,
+		MaxHeaderBytes: maxHeaderBytes,
 	}
 
 	go func() {
-		s.httpServer.Serve(listener)
+		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			logger.Error("HTTP服务器错误:", err)
+		}
 	}()
 
 	return nil
 }
 
 func (s *Server) Stop() error {
+	s.mu.Lock()
+	if !s.started {
+		s.mu.Unlock()
+		return fmt.Errorf("服务器未运行")
+	}
+	s.started = false
+	s.mu.Unlock()
+
 	s.cancel()
-	s.xrayService.StopXray()
+
 	if s.cron != nil {
 		s.cron.Stop()
 	}
-	var err1 error
-	var err2 error
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
 	if s.httpServer != nil {
-		err1 = s.httpServer.Shutdown(s.ctx)
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			return fmt.Errorf("关闭HTTP服务器失败: %v", err)
+		}
 	}
+
 	if s.listener != nil {
-		err2 = s.listener.Close()
+		if err := s.listener.Close(); err != nil {
+			return fmt.Errorf("关闭监听器失败: %v", err)
+		}
 	}
-	return common.Combine(err1, err2)
+
+	return nil
 }
 
 func (s *Server) GetCtx() context.Context {

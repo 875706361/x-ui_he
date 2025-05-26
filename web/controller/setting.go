@@ -2,11 +2,12 @@ package controller
 
 import (
 	"errors"
-	"github.com/gin-gonic/gin"
 	"time"
 	"x-ui/web/entity"
 	"x-ui/web/service"
 	"x-ui/web/session"
+
+	"github.com/gin-gonic/gin"
 )
 
 type updateUserForm struct {
@@ -20,21 +21,20 @@ type SettingController struct {
 	settingService service.SettingService
 	userService    service.UserService
 	panelService   service.PanelService
+	router         *gin.RouterGroup
 }
 
-func NewSettingController(g *gin.RouterGroup) *SettingController {
-	a := &SettingController{}
-	a.initRouter(g)
-	return a
+func NewSettingController(router *gin.RouterGroup) *SettingController {
+	return &SettingController{
+		router: router,
+	}
 }
 
-func (a *SettingController) initRouter(g *gin.RouterGroup) {
-	g = g.Group("/setting")
-
-	g.POST("/all", a.getAllSetting)
-	g.POST("/update", a.updateSetting)
-	g.POST("/updateUser", a.updateUser)
-	g.POST("/restartPanel", a.restartPanel)
+func (c *SettingController) initRouter() {
+	c.router.POST("/all", c.getAllSetting)
+	c.router.POST("/update", c.updateSetting)
+	c.router.POST("/updateUser", c.updateUser)
+	c.router.POST("/restartPanel", c.restartPanel)
 }
 
 func (a *SettingController) getAllSetting(c *gin.Context) {
@@ -85,4 +85,8 @@ func (a *SettingController) updateUser(c *gin.Context) {
 func (a *SettingController) restartPanel(c *gin.Context) {
 	err := a.panelService.RestartPanel(time.Second * 3)
 	jsonMsg(c, "重启面板", err)
+}
+
+func (c *SettingController) index(ctx *gin.Context) {
+	ctx.HTML(200, "setting.html", nil)
 }

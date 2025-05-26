@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"syscall"
 	"time"
@@ -8,6 +9,13 @@ import (
 )
 
 type PanelService struct {
+	ctx context.Context
+}
+
+func NewPanelService(ctx context.Context) *PanelService {
+	return &PanelService{
+		ctx: ctx,
+	}
 }
 
 func (s *PanelService) RestartPanel(delay time.Duration) error {

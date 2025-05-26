@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"go.uber.org/atomic"
 	"sync"
 	"x-ui/logger"
 	"x-ui/xray"
+
+	"go.uber.org/atomic"
 )
 
 var p *xray.Process
@@ -15,8 +17,15 @@ var isNeedXrayRestart atomic.Bool
 var result string
 
 type XrayService struct {
+	ctx            context.Context
 	inboundService InboundService
 	settingService SettingService
+}
+
+func NewXrayService(ctx context.Context) *XrayService {
+	return &XrayService{
+		ctx: ctx,
+	}
 }
 
 func (s *XrayService) IsXrayRunning() bool {
@@ -77,17 +86,26 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	return xrayConfig, nil
 }
 
-func (s *XrayService) GetXrayTraffic() ([]*xray.Traffic, error) {
+func (s *XrayService) GetXrayTraffic() (map[string]int64, error) {
 	if !s.IsXrayRunning() {
 		return nil, errors.New("xray is not running")
 	}
-	return p.GetTraffic(true)
+	traffic, err := p.GetTraffic(true)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]int64)
+	for _, t := range traffic {
+		result[t.Tag] = t.Bytes
+	}
+	return result, nil
 }
 
-func (s *XrayService) RestartXray(isForce bool) error {
+func (s *XrayService) RestartXray(force bool) error {
 	lock.Lock()
 	defer lock.Unlock()
-	logger.Debug("restart xray, force:", isForce)
+	logger.Debug("restart xray, force:", force)
 
 	xrayConfig, err := s.GetXrayConfig()
 	if err != nil {
@@ -95,7 +113,7 @@ func (s *XrayService) RestartXray(isForce bool) error {
 	}
 
 	if p != nil && p.IsRunning() {
-		if !isForce && p.GetConfig().Equals(xrayConfig) {
+		if !force && p.GetConfig().Equals(xrayConfig) {
 			logger.Debug("not need to restart xray")
 			return nil
 		}

@@ -1,11 +1,12 @@
 package controller
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"x-ui/logger"
 	"x-ui/web/service"
 	"x-ui/web/session"
+
+	"github.com/gin-gonic/gin"
 )
 
 type LoginForm struct {
@@ -14,15 +15,15 @@ type LoginForm struct {
 }
 
 type IndexController struct {
-	BaseController
+	router *gin.RouterGroup
 
 	userService service.UserService
 }
 
-func NewIndexController(g *gin.RouterGroup) *IndexController {
-	a := &IndexController{}
-	a.initRouter(g)
-	return a
+func NewIndexController(router *gin.RouterGroup) *IndexController {
+	return &IndexController{
+		router: router,
+	}
 }
 
 func (a *IndexController) initRouter(g *gin.RouterGroup) {

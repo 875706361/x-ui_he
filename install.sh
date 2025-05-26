@@ -72,46 +72,106 @@ elif [[ x"${release}" == x"debian" ]]; then
 fi
 
 install_base() {
+    echo -e "${yellow}开始安装基础组件...${plain}"
     if [[ x"${release}" == x"centos" ]]; then
-        yum install wget curl tar jq -y
+        yum clean all
+        yum makecache
+        yum install wget curl tar jq socat -y
     else
-        apt install wget curl tar jq -y
+        apt update -y
+        apt install wget curl tar jq socat -y
+    fi
+    if [[ $? -ne 0 ]]; then
+        echo -e "${red}基础组件安装失败，请检查网络或手动安装 wget curl tar jq socat${plain}"
+        exit 1
+    fi
+    echo -e "${green}基础组件安装完成${plain}"
+}
+
+check_config() {
+    if [[ ! -e /etc/x-ui ]]; then
+        mkdir /etc/x-ui
     fi
 }
 
-#This function will be called when user installed x-ui out of sercurity
+check_xray() {
+    if [[ ! -f /usr/local/x-ui/bin/xray-linux-${arch} ]]; then
+        echo -e "${red}未找到 Xray 可执行文件，安装可能已损坏，请尝试重新安装${plain}"
+        exit 1
+    fi
+}
+
 config_after_install() {
     echo -e "${yellow}出于安全考虑，安装/更新完成后需要强制修改端口与账户密码${plain}"
-    read -p "确认是否继续,如选择n则跳过本次端口与账户密码设定[y/n]": config_confirm
+    read -p "确认是否继续,如选择n则跳过本次端口与账户密码设定[y/n]: " config_confirm
     if [[ x"${config_confirm}" == x"y" || x"${config_confirm}" == x"Y" ]]; then
-        read -p "请设置您的账户名:" config_account
-        echo -e "${yellow}您的账户名将设定为:${config_account}${plain}"
-        read -p "请设置您的账户密码:" config_password
-        echo -e "${yellow}您的账户密码将设定为:${config_password}${plain}"
-        read -p "请设置面板访问端口:" config_port
-        echo -e "${yellow}您的面板访问端口将设定为:${config_port}${plain}"
-        echo -e "${yellow}确认设定,设定中${plain}"
+        while true; do
+            read -p "请设置您的账户名(至少4位): " config_account
+            if [[ ${#config_account} -ge 4 ]]; then
+                break
+            else
+                echo -e "${red}账户名长度不能小于4位${plain}"
+            fi
+        done
+        echo -e "${yellow}您的账户名将设定为: ${config_account}${plain}"
+        
+        while true; do
+            read -p "请设置您的账户密码(至少6位): " config_password
+            if [[ ${#config_password} -ge 6 ]]; then
+                break
+            else
+                echo -e "${red}密码长度不能小于6位${plain}"
+            fi
+        done
+        echo -e "${yellow}您的账户密码将设定为: ${config_password}${plain}"
+        
+        while true; do
+            read -p "请设置面板访问端口(1-65535): " config_port
+            if [[ ${config_port} -ge 1 && ${config_port} -le 65535 ]]; then
+                break
+            else
+                echo -e "${red}端口范围错误，请输入1-65535之间的数字${plain}"
+            fi
+        done
+        echo -e "${yellow}您的面板访问端口将设定为: ${config_port}${plain}"
+        
+        echo -e "${yellow}确认设定,设定中...${plain}"
         /usr/local/x-ui/x-ui setting -username ${config_account} -password ${config_password}
-        echo -e "${yellow}账户密码设定完成${plain}"
+        if [[ $? -eq 0 ]]; then
+            echo -e "${green}账户密码设定完成${plain}"
+        else
+            echo -e "${red}账户密码设定失败${plain}"
+            exit 1
+        fi
+        
         /usr/local/x-ui/x-ui setting -port ${config_port}
-        echo -e "${yellow}面板端口设定完成${plain}"
+        if [[ $? -eq 0 ]]; then
+            echo -e "${green}面板端口设定完成${plain}"
+        else
+            echo -e "${red}面板端口设定失败${plain}"
+            exit 1
+        fi
     else
-        echo -e "${red}已取消设定...${plain}"
+        echo -e "${yellow}跳过手动设定，将使用随机生成的配置...${plain}"
         if [[ ! -f "/etc/x-ui/x-ui.db" ]]; then
-            local usernameTemp=$(head -c 6 /dev/urandom | base64)
-            local passwordTemp=$(head -c 6 /dev/urandom | base64)
-            local portTemp=$(echo $RANDOM)
+            local usernameTemp=$(head -c 8 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)
+            local passwordTemp=$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)
+            local portTemp=$(shuf -i 10000-65535 -n 1)
+            
             /usr/local/x-ui/x-ui setting -username ${usernameTemp} -password ${passwordTemp}
             /usr/local/x-ui/x-ui setting -port ${portTemp}
-            echo -e "检测到您属于全新安装,出于安全考虑已自动为您生成随机用户与端口:"
+            
+            echo -e "检测到您属于全新安装,已自动为您生成随机配置:"
             echo -e "###############################################"
-            echo -e "${green}面板登录用户名:${usernameTemp}${plain}"
-            echo -e "${green}面板登录用户密码:${passwordTemp}${plain}"
-            echo -e "${red}面板登录端口:${portTemp}${plain}"
+            echo -e "${green}面板登录用户名: ${usernameTemp}${plain}"
+            echo -e "${green}面板登录密码: ${passwordTemp}${plain}"
+            echo -e "${green}面板访问端口: ${portTemp}${plain}"
             echo -e "###############################################"
-            echo -e "${red}如您遗忘了面板登录相关信息,可在安装完成后输入x-ui,输入选项7查看面板登录信息${plain}"
+            echo -e "${yellow}请务必保存好以上信息！${plain}"
+            echo -e "${yellow}您可以稍后使用x-ui命令,选择选项7查看面板登录信息${plain}"
         else
-            echo -e "${red}当前属于版本升级,保留之前设置项,登录方式保持不变,可输入x-ui后键入数字7查看面板登录信息${plain}"
+            echo -e "${yellow}检测到是版本升级，将保留原有配置${plain}"
+            echo -e "${yellow}如需查看配置信息，请使用x-ui命令并选择选项7${plain}"
         fi
     fi
 }
@@ -121,24 +181,27 @@ install_x-ui() {
     cd /usr/local/
 
     if [ $# == 0 ]; then
-        last_version=$(curl -Lsk "https://api.github.com/repos/FranzKafkaYu/x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        echo -e "${yellow}开始检查最新版本...${plain}"
+        last_version=$(curl -Ls "https://api.github.com/repos/FranzKafkaYu/x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
-            echo -e "${red}检测 x-ui 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 x-ui 版本安装${plain}"
+            echo -e "${red}检测版本失败，请检查网络或稍后再试${plain}"
             exit 1
         fi
-        echo -e "检测到 x-ui 最新版本：${last_version}，开始安装"
+        echo -e "${green}检测到最新版本：${last_version}${plain}"
+        
+        echo -e "${yellow}开始下载 x-ui...${plain}"
         wget -N --no-check-certificate -O /usr/local/x-ui-linux-${arch}.tar.gz https://github.com/FranzKafkaYu/x-ui/releases/download/${last_version}/x-ui-linux-${arch}.tar.gz
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 x-ui 失败，请确保你的服务器能够下载 Github 的文件${plain}"
+            echo -e "${red}下载失败，请检查网络或手动下载${plain}"
             exit 1
         fi
     else
         last_version=$1
         url="https://github.com/FranzKafkaYu/x-ui/releases/download/${last_version}/x-ui-linux-${arch}.tar.gz"
-        echo -e "开始安装 x-ui v$1"
+        echo -e "${yellow}开始下载 x-ui v${last_version}...${plain}"
         wget -N --no-check-certificate -O /usr/local/x-ui-linux-${arch}.tar.gz ${url}
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 x-ui v$1 失败，请确保此版本存在${plain}"
+            echo -e "${red}下载 v${last_version} 失败，请检查版本是否存在${plain}"
             exit 1
         fi
     fi
@@ -147,25 +210,31 @@ install_x-ui() {
         rm /usr/local/x-ui/ -rf
     fi
 
+    echo -e "${yellow}开始解压安装包...${plain}"
     tar zxvf x-ui-linux-${arch}.tar.gz
     rm x-ui-linux-${arch}.tar.gz -f
     cd x-ui
     chmod +x x-ui bin/xray-linux-${arch}
     cp -f x-ui.service /etc/systemd/system/
-    wget --no-check-certificate -O /usr/bin/x-ui https://raw.githubusercontent.com/FranzKafkaYu/x-ui/main/x-ui.sh
+    
+    echo -e "${yellow}开始下载脚本文件...${plain}"
+    wget --no-check-certificate -O /usr/bin/x-ui https://raw.githubusercontent.com/875706361/x-ui_youhua/master/x-ui.sh
+    if [[ $? -ne 0 ]]; then
+        echo -e "${red}下载脚本失败，请检查网络${plain}"
+        exit 1
+    fi
     chmod +x /usr/local/x-ui/x-ui.sh
     chmod +x /usr/bin/x-ui
+    
+    echo -e "${yellow}开始配置x-ui...${plain}"
     config_after_install
-    #echo -e "如果是全新安装，默认网页端口为 ${green}54321${plain}，用户名和密码默认都是 ${green}admin${plain}"
-    #echo -e "请自行确保此端口没有被其他程序占用，${yellow}并且确保 54321 端口已放行${plain}"
-    #    echo -e "若想将 54321 修改为其它端口，输入 x-ui 命令进行修改，同样也要确保你修改的端口也是放行的"
-    #echo -e ""
-    #echo -e "如果是更新面板，则按你之前的方式访问面板"
-    #echo -e ""
+    
+    echo -e "${yellow}开始启动服务...${plain}"
     systemctl daemon-reload
     systemctl enable x-ui
     systemctl start x-ui
-    echo -e "${green}x-ui v${last_version}${plain} 安装完成，面板已启动，"
+    
+    echo -e "${green}x-ui v${last_version} 安装完成，面板已启动${plain}"
     echo -e ""
     echo -e "x-ui 管理脚本使用方法: "
     echo -e "----------------------------------------------"
@@ -177,14 +246,15 @@ install_x-ui() {
     echo -e "x-ui enable       - 设置 x-ui 开机自启"
     echo -e "x-ui disable      - 取消 x-ui 开机自启"
     echo -e "x-ui log          - 查看 x-ui 日志"
-    echo -e "x-ui v2-ui        - 迁移本机器的 v2-ui 账号数据至 x-ui"
     echo -e "x-ui update       - 更新 x-ui 面板"
     echo -e "x-ui install      - 安装 x-ui 面板"
     echo -e "x-ui uninstall    - 卸载 x-ui 面板"
-    echo -e "x-ui geo          - 更新 geo  数据"
+    echo -e "x-ui geo          - 更新 geo 数据"
     echo -e "----------------------------------------------"
 }
 
-echo -e "${green}开始安装${plain}"
+echo -e "${green}开始安装x-ui面板...${plain}"
 install_base
+check_config
 install_x-ui $1
+check_xray

@@ -1,0 +1,33 @@
+# 通用
+[common]
+success = "操作成功"
+fail = "操作失败"
+confirm = "确定"
+cancel = "取消"
+close = "关闭"
+save = "保存"
+del = "删除"
+refresh = "刷新"
+back = "返回"
+search = "搜索"
+
+# 登录
+[login]
+title = "登录"
+username = "用户名"
+password = "密码"
+remember = "记住我"
+login = "登录"
+
+# 菜单
+[menu]
+dashboard = "仪表盘"
+inbounds = "入站列表"
+setting = "系统设置"
+logout = "退出登录"
+
+# 状态
+[status]
+running = "运行中"
+stopped = "已停止"
+error = "错误" 

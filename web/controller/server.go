@@ -1,10 +1,11 @@
 package controller
 
 import (
-	"github.com/gin-gonic/gin"
 	"time"
 	"x-ui/web/global"
 	"x-ui/web/service"
+
+	"github.com/gin-gonic/gin"
 )
 
 type ServerController struct {
@@ -17,13 +18,16 @@ type ServerController struct {
 
 	lastVersions        []string
 	lastGetVersionsTime time.Time
+
+	router *gin.RouterGroup
 }
 
-func NewServerController(g *gin.RouterGroup) *ServerController {
+func NewServerController(router *gin.RouterGroup) *ServerController {
 	a := &ServerController{
+		router:            router,
 		lastGetStatusTime: time.Now(),
 	}
-	a.initRouter(g)
+	a.initRouter(router)
 	a.startTask()
 	return a
 }

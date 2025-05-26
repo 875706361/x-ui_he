@@ -2,34 +2,35 @@ package controller
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"strconv"
 	"x-ui/database/model"
 	"x-ui/logger"
 	"x-ui/web/global"
 	"x-ui/web/service"
 	"x-ui/web/session"
+
+	"github.com/gin-gonic/gin"
 )
 
 type InboundController struct {
 	inboundService service.InboundService
 	xrayService    service.XrayService
+	router         *gin.RouterGroup
 }
 
-func NewInboundController(g *gin.RouterGroup) *InboundController {
-	a := &InboundController{}
-	a.initRouter(g)
-	a.startTask()
-	return a
+func NewInboundController(router *gin.RouterGroup) *InboundController {
+	return &InboundController{
+		router: router,
+	}
 }
 
-func (a *InboundController) initRouter(g *gin.RouterGroup) {
+func (c *InboundController) initRouter(g *gin.RouterGroup) {
 	g = g.Group("/inbound")
 
-	g.POST("/list", a.getInbounds)
-	g.POST("/add", a.addInbound)
-	g.POST("/del/:id", a.delInbound)
-	g.POST("/update/:id", a.updateInbound)
+	g.POST("/list", c.getInbounds)
+	g.POST("/add", c.addInbound)
+	g.POST("/del/:id", c.delInbound)
+	g.POST("/update/:id", c.updateInbound)
 }
 
 func (a *InboundController) startTask() {
@@ -105,4 +106,8 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 	if err == nil {
 		a.xrayService.SetToNeedRestart()
 	}
+}
+
+func (c *InboundController) index(ctx *gin.Context) {
+	ctx.HTML(200, "inbound.html", nil)
 }

@@ -3,14 +3,9 @@ package service
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/disk"
-	"github.com/shirou/gopsutil/host"
-	"github.com/shirou/gopsutil/load"
-	"github.com/shirou/gopsutil/mem"
-	"github.com/shirou/gopsutil/net"
 	"io"
 	"io/fs"
 	"net/http"
@@ -20,6 +15,13 @@ import (
 	"x-ui/logger"
 	"x-ui/util/sys"
 	"x-ui/xray"
+
+	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/host"
+	"github.com/shirou/gopsutil/load"
+	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/net"
 )
 
 type ProcessState string
@@ -31,25 +33,24 @@ const (
 )
 
 type Status struct {
-	T   time.Time `json:"-"`
-	Cpu float64   `json:"cpu"`
+	T   int64
+	Cpu float64
 	Mem struct {
-		Current uint64 `json:"current"`
-		Total   uint64 `json:"total"`
-	} `json:"mem"`
+		Current uint64
+		Total   uint64
+	}
 	Swap struct {
-		Current uint64 `json:"current"`
-		Total   uint64 `json:"total"`
-	} `json:"swap"`
+		Current uint64
+		Total   uint64
+	}
 	Disk struct {
-		Current uint64 `json:"current"`
-		Total   uint64 `json:"total"`
-	} `json:"disk"`
+		Current uint64
+		Total   uint64
+	}
 	Xray struct {
-		State    ProcessState `json:"state"`
-		ErrorMsg string       `json:"errorMsg"`
-		Version  string       `json:"version"`
-	} `json:"xray"`
+		State    int
+		ErrorMsg string
+	}
 	Uptime   uint64    `json:"uptime"`
 	Loads    []float64 `json:"loads"`
 	TcpCount int       `json:"tcpCount"`
@@ -69,13 +70,20 @@ type Release struct {
 }
 
 type ServerService struct {
+	ctx         context.Context
 	xrayService XrayService
+}
+
+func NewServerService(ctx context.Context) *ServerService {
+	return &ServerService{
+		ctx: ctx,
+	}
 }
 
 func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	now := time.Now()
 	status := &Status{
-		T: now,
+		T: now.Unix(),
 	}
 
 	percents, err := cpu.Percent(0, false)
@@ -132,7 +140,7 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 		status.NetTraffic.Recv = ioStat.BytesRecv
 
 		if lastStatus != nil {
-			duration := now.Sub(lastStatus.T)
+			duration := now.Sub(time.Unix(lastStatus.T, 0))
 			seconds := float64(duration) / float64(time.Second)
 			up := uint64(float64(status.NetTraffic.Sent-lastStatus.NetTraffic.Sent) / seconds)
 			down := uint64(float64(status.NetTraffic.Recv-lastStatus.NetTraffic.Recv) / seconds)
@@ -154,18 +162,15 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	}
 
 	if s.xrayService.IsXrayRunning() {
-		status.Xray.State = Running
+		status.Xray.State = 1
 		status.Xray.ErrorMsg = ""
 	} else {
 		err := s.xrayService.GetXrayErr()
 		if err != nil {
-			status.Xray.State = Error
-		} else {
-			status.Xray.State = Stop
+			status.Xray.State = 0
 		}
 		status.Xray.ErrorMsg = s.xrayService.GetXrayResult()
 	}
-	status.Xray.Version = s.xrayService.GetXrayVersion()
 
 	return status
 }
@@ -297,5 +302,4 @@ func (s *ServerService) UpdateXray(version string) error {
 	}
 
 	return nil
-
 }

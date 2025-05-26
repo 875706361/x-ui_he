@@ -5,32 +5,37 @@ import (
 )
 
 type XUIController struct {
-	BaseController
+	router *gin.RouterGroup
 
 	inboundController *InboundController
 	settingController *SettingController
 }
 
-func NewXUIController(g *gin.RouterGroup) *XUIController {
-	a := &XUIController{}
-	a.initRouter(g)
-	return a
+func NewXUIController(router *gin.RouterGroup) *XUIController {
+	c := &XUIController{
+		router:            router,
+		inboundController: NewInboundController(router),
+		settingController: NewSettingController(router),
+	}
+	c.initRouter()
+	return c
 }
 
-func (a *XUIController) initRouter(g *gin.RouterGroup) {
-	g = g.Group("/xui")
-	g.Use(a.checkLogin)
-
-	g.GET("/", a.index)
-	g.GET("/inbounds", a.inbounds)
-	g.GET("/setting", a.setting)
-
-	a.inboundController = NewInboundController(g)
-	a.settingController = NewSettingController(g)
+func (c *XUIController) initRouter() {
+	c.router.Use(c.checkLogin)
+	g := c.router.Group("/xui")
+	g.GET("/", c.index)
+	g.GET("/inbounds", c.inboundController.index)
+	g.GET("/setting", c.settingController.index)
 }
 
-func (a *XUIController) index(c *gin.Context) {
-	html(c, "index.html", "系统状态", nil)
+func (c *XUIController) checkLogin(ctx *gin.Context) {
+	// 检查登录状态
+	ctx.Next()
+}
+
+func (c *XUIController) index(ctx *gin.Context) {
+	ctx.HTML(200, "index.html", nil)
 }
 
 func (a *XUIController) inbounds(c *gin.Context) {

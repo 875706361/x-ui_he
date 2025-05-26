@@ -31,23 +31,26 @@ function LOGI() {
 [[ $EUID -ne 0 ]] && LOGE "错误:  必须使用root用户运行此脚本!\n" && exit 1
 
 # check os
-if [[ -f /etc/redhat-release ]]; then
-    release="centos"
-elif cat /etc/issue | grep -Eqi "debian"; then
-    release="debian"
-elif cat /etc/issue | grep -Eqi "ubuntu"; then
-    release="ubuntu"
-elif cat /etc/issue | grep -Eqi "centos|red hat|redhat"; then
-    release="centos"
-elif cat /proc/version | grep -Eqi "debian"; then
-    release="debian"
-elif cat /proc/version | grep -Eqi "ubuntu"; then
-    release="ubuntu"
-elif cat /proc/version | grep -Eqi "centos|red hat|redhat"; then
-    release="centos"
-else
-    LOGE "未检测到系统版本，请联系脚本作者！\n" && exit 1
-fi
+check_sys() {
+    if [[ -f /etc/redhat-release ]]; then
+        release="centos"
+    elif cat /etc/issue | grep -Eqi "debian"; then
+        release="debian"
+    elif cat /etc/issue | grep -Eqi "ubuntu"; then
+        release="ubuntu"
+    elif cat /etc/issue | grep -Eqi "centos|red hat|redhat"; then
+        release="centos"
+    elif cat /proc/version | grep -Eqi "debian"; then
+        release="debian"
+    elif cat /proc/version | grep -Eqi "ubuntu"; then
+        release="ubuntu"
+    elif cat /proc/version | grep -Eqi "centos|red hat|redhat"; then
+        release="centos"
+    else
+        LOGE "未检测到系统版本，请联系脚本作者！"
+        exit 1
+    fi
+}
 
 os_version=""
 
@@ -789,9 +792,11 @@ show_usage() {
     echo "x-ui update       - 更新 x-ui 面板"
     echo "x-ui install      - 安装 x-ui 面板"
     echo "x-ui uninstall    - 卸载 x-ui 面板"
-    echo "x-ui clear        - 清除 x-ui 日志"
     echo "x-ui geo          - 更新 x-ui geo数据"
     echo "x-ui cron         - 配置 x-ui 定时任务"
+    echo "x-ui backup       - 备份面板配置"
+    echo "x-ui restore      - 恢复面板配置"
+    echo "x-ui clear        - 清除面板日志"
     echo "------------------------------------------"
 }
 
@@ -821,9 +826,13 @@ show_menu() {
   ${green}15.${plain} 一键安装 bbr (最新内核)
   ${green}16.${plain} 一键申请SSL证书(acme申请)
   ${green}17.${plain} 配置x-ui定时任务
+————————————————
+  ${green}18.${plain} 备份面板配置
+  ${green}19.${plain} 恢复面板配置
+  ${green}20.${plain} 清除面板日志
  "
     show_status
-    echo && read -p "请输入选择 [0-17],查看面板登录信息请输入数字7:" num
+    echo && read -p "请输入选择 [0-20]: " num
 
     case "${num}" in
     0)
@@ -880,8 +889,17 @@ show_menu() {
     17)
         check_install && cron_jobs
         ;;
+    18)
+        check_install && backup_config
+        ;;
+    19)
+        check_install && restore_config
+        ;;
+    20)
+        check_install && clear_log
+        ;;
     *)
-        LOGE "请输入正确的数字 [0-17],查看面板登录信息请输入数字7"
+        LOGE "请输入正确的数字 [0-20]"
         ;;
     esac
 }
@@ -929,6 +947,12 @@ if [[ $# > 0 ]]; then
         ;;
     "cron")
         check_install && cron_jobs
+        ;;
+    "backup")
+        check_install 0 && backup_config
+        ;;
+    "restore")
+        check_install 0 && restore_config
         ;;
     *) show_usage ;;
     esac

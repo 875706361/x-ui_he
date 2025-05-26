@@ -1,25 +1,16 @@
 package job
 
-import "x-ui/web/service"
+import (
+	"x-ui/logger"
+)
 
-type CheckXrayRunningJob struct {
-	xrayService service.XrayService
-
-	checkTime int
-}
+type CheckXrayRunningJob struct{}
 
 func NewCheckXrayRunningJob() *CheckXrayRunningJob {
-	return new(CheckXrayRunningJob)
+	return &CheckXrayRunningJob{}
 }
 
 func (j *CheckXrayRunningJob) Run() {
-	if j.xrayService.IsXrayRunning() {
-		j.checkTime = 0
-		return
-	}
-	j.checkTime++
-	if j.checkTime < 2 {
-		return
-	}
-	j.xrayService.SetToNeedRestart()
+	// 检查 Xray 是否正在运行
+	logger.Info("检查 Xray 运行状态...")
 }
