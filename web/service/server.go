@@ -5,23 +5,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/fs"
-	"net/http"
-	"os"
-	"runtime"
-	"sync"
-	"time"
-	"x-ui/logger"
-	"x-ui/util/sys"
-	"x-ui/xray"
-
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/load"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/shirou/gopsutil/net"
+	"io"
+	"io/fs"
+	"net/http"
+	"os"
+	"runtime"
+	"time"
+	"x-ui/logger"
+	"x-ui/util/sys"
+	"x-ui/xray"
 )
 
 type ProcessState string
@@ -71,150 +69,96 @@ type Release struct {
 }
 
 type ServerService struct {
-	xrayService    XrayService
-	statsCache     *Status
-	lastUpdate     time.Time
-	mutex          sync.RWMutex
-	sampleInterval time.Duration
-	errRetryDelay  time.Duration
-	httpClient     *http.Client
-}
-
-func NewServerService(xrayService XrayService) *ServerService {
-	return &ServerService{
-		xrayService:    xrayService,
-		sampleInterval: 2 * time.Second,
-		errRetryDelay:  5 * time.Second,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-	}
+	xrayService XrayService
 }
 
 func (s *ServerService) GetStatus(lastStatus *Status) *Status {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
 	now := time.Now()
-
-	if s.statsCache != nil && now.Sub(s.lastUpdate) < s.sampleInterval {
-		return s.statsCache
-	}
-
 	status := &Status{
 		T: now,
 	}
 
-	var wg sync.WaitGroup
-	var cpuMutex, memMutex, diskMutex, loadMutex, netMutex sync.Mutex
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if percents, err := cpu.Percent(s.sampleInterval, false); err != nil {
-			logger.Warning("获取CPU使用率失败:", err)
-		} else if len(percents) > 0 {
-			cpuMutex.Lock()
-			status.Cpu = percents[0]
-			cpuMutex.Unlock()
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if memInfo, err := mem.VirtualMemory(); err != nil {
-			logger.Warning("获取内存信息失败:", err)
-		} else {
-			memMutex.Lock()
-			status.Mem.Current = memInfo.Used
-			status.Mem.Total = memInfo.Total
-			memMutex.Unlock()
-		}
-
-		if swapInfo, err := mem.SwapMemory(); err != nil {
-			logger.Warning("获取交换分区信息失败:", err)
-		} else {
-			memMutex.Lock()
-			status.Swap.Current = swapInfo.Used
-			status.Swap.Total = swapInfo.Total
-			memMutex.Unlock()
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if diskInfo, err := disk.Usage("/"); err != nil {
-			logger.Warning("获取磁盘使用情况失败:", err)
-		} else {
-			diskMutex.Lock()
-			status.Disk.Current = diskInfo.Used
-			status.Disk.Total = diskInfo.Total
-			diskMutex.Unlock()
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if loadInfo, err := load.Avg(); err != nil {
-			logger.Warning("获取系统负载失败:", err)
-		} else {
-			loadMutex.Lock()
-			status.Loads = []float64{loadInfo.Load1, loadInfo.Load5, loadInfo.Load15}
-			loadMutex.Unlock()
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if ioStats, err := net.IOCounters(false); err != nil {
-			logger.Warning("获取网络IO统计失败:", err)
-		} else if len(ioStats) > 0 {
-			netMutex.Lock()
-			ioStat := ioStats[0]
-			status.NetTraffic.Sent = ioStat.BytesSent
-			status.NetTraffic.Recv = ioStat.BytesRecv
-
-			if lastStatus != nil {
-				duration := now.Sub(lastStatus.T)
-				seconds := float64(duration) / float64(time.Second)
-				up := uint64(float64(status.NetTraffic.Sent-lastStatus.NetTraffic.Sent) / seconds)
-				down := uint64(float64(status.NetTraffic.Recv-lastStatus.NetTraffic.Recv) / seconds)
-				status.NetIO.Up = up
-				status.NetIO.Down = down
-			}
-			netMutex.Unlock()
-		}
-	}()
-
-	wg.Wait()
-
-	if tcpCount, err := sys.GetTCPCount(); err != nil {
-		logger.Warning("获取TCP连接数失败:", err)
+	percents, err := cpu.Percent(0, false)
+	if err != nil {
+		logger.Warning("get cpu percent failed:", err)
 	} else {
-		status.TcpCount = tcpCount
+		status.Cpu = percents[0]
 	}
 
-	if udpCount, err := sys.GetUDPCount(); err != nil {
-		logger.Warning("获取UDP连接数失败:", err)
-	} else {
-		status.UdpCount = udpCount
-	}
-
-	if upTime, err := host.Uptime(); err != nil {
-		logger.Warning("获取系统运行时间失败:", err)
+	upTime, err := host.Uptime()
+	if err != nil {
+		logger.Warning("get uptime failed:", err)
 	} else {
 		status.Uptime = upTime
+	}
+
+	memInfo, err := mem.VirtualMemory()
+	if err != nil {
+		logger.Warning("get virtual memory failed:", err)
+	} else {
+		status.Mem.Current = memInfo.Used
+		status.Mem.Total = memInfo.Total
+	}
+
+	swapInfo, err := mem.SwapMemory()
+	if err != nil {
+		logger.Warning("get swap memory failed:", err)
+	} else {
+		status.Swap.Current = swapInfo.Used
+		status.Swap.Total = swapInfo.Total
+	}
+
+	distInfo, err := disk.Usage("/")
+	if err != nil {
+		logger.Warning("get dist usage failed:", err)
+	} else {
+		status.Disk.Current = distInfo.Used
+		status.Disk.Total = distInfo.Total
+	}
+
+	avgState, err := load.Avg()
+	if err != nil {
+		logger.Warning("get load avg failed:", err)
+	} else {
+		status.Loads = []float64{avgState.Load1, avgState.Load5, avgState.Load15}
+	}
+
+	ioStats, err := net.IOCounters(false)
+	if err != nil {
+		logger.Warning("get io counters failed:", err)
+	} else if len(ioStats) > 0 {
+		ioStat := ioStats[0]
+		status.NetTraffic.Sent = ioStat.BytesSent
+		status.NetTraffic.Recv = ioStat.BytesRecv
+
+		if lastStatus != nil {
+			duration := now.Sub(lastStatus.T)
+			seconds := float64(duration) / float64(time.Second)
+			up := uint64(float64(status.NetTraffic.Sent-lastStatus.NetTraffic.Sent) / seconds)
+			down := uint64(float64(status.NetTraffic.Recv-lastStatus.NetTraffic.Recv) / seconds)
+			status.NetIO.Up = up
+			status.NetIO.Down = down
+		}
+	} else {
+		logger.Warning("can not find io counters")
+	}
+
+	status.TcpCount, err = sys.GetTCPCount()
+	if err != nil {
+		logger.Warning("get tcp connections failed:", err)
+	}
+
+	status.UdpCount, err = sys.GetUDPCount()
+	if err != nil {
+		logger.Warning("get udp connections failed:", err)
 	}
 
 	if s.xrayService.IsXrayRunning() {
 		status.Xray.State = Running
 		status.Xray.ErrorMsg = ""
 	} else {
-		if err := s.xrayService.GetXrayErr(); err != nil {
+		err := s.xrayService.GetXrayErr()
+		if err != nil {
 			status.Xray.State = Error
 		} else {
 			status.Xray.State = Stop
@@ -223,36 +167,29 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	}
 	status.Xray.Version = s.xrayService.GetXrayVersion()
 
-	s.statsCache = status
-	s.lastUpdate = now
-
 	return status
 }
 
 func (s *ServerService) GetXrayVersions() ([]string, error) {
 	url := "https://api.github.com/repos/XTLS/Xray-core/releases"
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
 	defer resp.Body.Close()
-
-	buffer := bytes.NewBuffer(make([]byte, 0, 8192))
-	_, err = io.Copy(buffer, resp.Body)
+	buffer := bytes.NewBuffer(make([]byte, 8192))
+	buffer.Reset()
+	_, err = buffer.ReadFrom(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	var releases []Release
-	if err = json.Unmarshal(buffer.Bytes(), &releases); err != nil {
+	releases := make([]Release, 0)
+	err = json.Unmarshal(buffer.Bytes(), &releases)
+	if err != nil {
 		return nil, err
 	}
-
 	versions := make([]string, 0, len(releases))
 	for _, release := range releases {
 		versions = append(versions, release.TagName)
@@ -360,4 +297,5 @@ func (s *ServerService) UpdateXray(version string) error {
 	}
 
 	return nil
+
 }

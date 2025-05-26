@@ -25,23 +25,15 @@
                             <a-col :sm="24" :md="12">
                                 <a-row>
                                     <a-col :span="12" style="text-align: center">
-                                        <a-progress 
-                                            type="dashboard" 
-                                            status="normal"
-                                            :stroke-color="status.cpu.color"
-                                            :percent="status.cpu.percent"
-                                            v-if="showResourceStats"
-                                        ></a-progress>
+                                        <a-progress type="dashboard" status="normal"
+                                                    :stroke-color="status.cpu.color"
+                                                    :percent="status.cpu.percent"></a-progress>
                                         <div>CPU</div>
                                     </a-col>
                                     <a-col :span="12" style="text-align: center">
-                                        <a-progress 
-                                            type="dashboard" 
-                                            status="normal"
-                                            :stroke-color="status.mem.color"
-                                            :percent="status.mem.percent"
-                                            v-if="showResourceStats"
-                                        ></a-progress>
+                                        <a-progress type="dashboard" status="normal"
+                                                    :stroke-color="status.mem.color"
+                                                    :percent="status.mem.percent"></a-progress>
                                         <div>
                                             内存: [[ sizeFormat(status.mem.current) ]] / [[ sizeFormat(status.mem.total) ]]
                                         </div>
@@ -281,15 +273,11 @@
         delimiters: ['[[', ']]'],
         el: '#app',
         data: {
-            siderDrawer: false,
-            status: new Status({}),
+            siderDrawer,
+            status: new Status(),
             versionModal,
             spinning: false,
             loadingTip: '加载中',
-            timer: null,
-            lastStatus: null,
-            showResourceStats: true,
-            updateInterval: 2000, // 2秒更新一次
         },
         methods: {
             loading(spinning, tip = '加载中') {
@@ -297,14 +285,13 @@
                 this.loadingTip = tip;
             },
             async getStatus() {
-                this.lastStatus = JSON.parse(JSON.stringify(this.status));
-                const dataUrl = '/server/status';
-                
-                get(dataUrl).then(resp => {
-                    this.status = new Status(resp.obj);
-                }).catch(e => {
-                    console.error(e);
-                });
+                const msg = await HttpUtil.post('/server/status');
+                if (msg.success) {
+                    this.setStatus(msg.obj);
+                }
+            },
+            setStatus(data) {
+                this.status = new Status(data);
             },
             async openSelectV2rayVersion() {
                 this.loading(true);
@@ -329,45 +316,19 @@
                     },
                 });
             },
-            startUpdateStatus() {
-                this.timer = setInterval(() => {
-                    if (document.hidden) {
-                        // 页面不可见时降低更新频率
-                        this.showResourceStats = false;
-                        return;
-                    }
-                    this.showResourceStats = true;
-                    this.getStatus();
-                }, this.updateInterval);
-            },
-            stopUpdateStatus() {
-                if (this.timer) {
-                    clearInterval(this.timer);
-                    this.timer = null;
+        },
+        async mounted() {
+            while (true) {
+                try {
+                    await this.getStatus();
+                } catch (e) {
+                    console.error(e);
                 }
+                await PromiseUtil.sleep(2000);
             }
         },
-        mounted() {
-            this.getStatus();
-            this.startUpdateStatus();
-            
-            // 添加页面可见性监听
-            document.addEventListener('visibilitychange', () => {
-                if (document.hidden) {
-                    this.stopUpdateStatus();
-                } else {
-                    this.getStatus();
-                    this.startUpdateStatus();
-                }
-            });
-        },
-        beforeDestroy() {
-            this.stopUpdateStatus();
-            document.removeEventListener('visibilitychange');
-        }
     });
 
 </script>
 </body>
-</html>
 </html>

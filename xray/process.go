@@ -7,19 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Workiva/go-datastructures/queue"
+	statsservice "github.com/xtls/xray-core/app/stats/command"
+	"google.golang.org/grpc"
 	"io/fs"
 	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 	"x-ui/util/common"
-
-	"github.com/Workiva/go-datastructures/queue"
-	statsservice "github.com/xtls/xray-core/app/stats/command"
-	"google.golang.org/grpc"
 )
 
 var trafficRegex = regexp.MustCompile("(inbound|outbound)>>>([^>]+)>>>traffic>>>(downlink|uplink)")
@@ -52,28 +50,6 @@ type Process struct {
 	*process
 }
 
-type TrafficCache struct {
-	traffics []*Traffic
-	lastTime time.Time
-	mutex    sync.RWMutex
-}
-
-func (c *TrafficCache) Set(traffics []*Traffic) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	c.traffics = traffics
-	c.lastTime = time.Now()
-}
-
-func (c *TrafficCache) Get() ([]*Traffic, bool) {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
-	if time.Since(c.lastTime) > 2*time.Second {
-		return nil, false
-	}
-	return c.traffics, true
-}
-
 func NewProcess(xrayConfig *Config) *Process {
 	p := &Process{newProcess(xrayConfig)}
 	runtime.SetFinalizer(p, stopProcess)
@@ -86,18 +62,16 @@ type process struct {
 	version string
 	apiPort int
 
-	config       *Config
-	lines        *queue.Queue
-	exitErr      error
-	trafficCache *TrafficCache
+	config  *Config
+	lines   *queue.Queue
+	exitErr error
 }
 
 func newProcess(config *Config) *process {
 	return &process{
-		version:      "Unknown",
-		config:       config,
-		lines:        queue.New(100),
-		trafficCache: &TrafficCache{},
+		version: "Unknown",
+		config:  config,
+		lines:   queue.New(100),
 	}
 }
 
@@ -258,25 +232,15 @@ func (p *process) GetTraffic(reset bool) ([]*Traffic, error) {
 	if p.apiPort == 0 {
 		return nil, common.NewError("xray api port wrong:", p.apiPort)
 	}
-
-	// 检查缓存
-	if !reset {
-		if traffics, ok := p.trafficCache.Get(); ok {
-			return traffics, nil
-		}
-	}
-
-	// 创建带超时的上下文
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(ctx, fmt.Sprintf("127.0.0.1:%v", p.apiPort), grpc.WithInsecure())
+	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%v", p.apiPort), grpc.WithInsecure())
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
 	client := statsservice.NewStatsServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
 	request := &statsservice.QueryStatsRequest{
 		Reset_: reset,
 	}
@@ -284,24 +248,16 @@ func (p *process) GetTraffic(reset bool) ([]*Traffic, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	tagTrafficMap := make(map[string]*Traffic)
+	tagTrafficMap := map[string]*Traffic{}
 	traffics := make([]*Traffic, 0)
-
 	for _, stat := range resp.GetStat() {
 		matchs := trafficRegex.FindStringSubmatch(stat.Name)
-		if len(matchs) < 4 {
-			continue
-		}
-
 		isInbound := matchs[1] == "inbound"
 		tag := matchs[2]
 		isDown := matchs[3] == "downlink"
-
 		if tag == "api" {
 			continue
 		}
-
 		traffic, ok := tagTrafficMap[tag]
 		if !ok {
 			traffic = &Traffic{
@@ -311,17 +267,11 @@ func (p *process) GetTraffic(reset bool) ([]*Traffic, error) {
 			tagTrafficMap[tag] = traffic
 			traffics = append(traffics, traffic)
 		}
-
 		if isDown {
 			traffic.Down = stat.Value
 		} else {
 			traffic.Up = stat.Value
 		}
-	}
-
-	// 更新缓存
-	if !reset {
-		p.trafficCache.Set(traffics)
 	}
 
 	return traffics, nil
