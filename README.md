@@ -2,7 +2,7 @@
 简体中文|[ENGLISH](./README_EN.md)  
 
 > 声明：该项目仅供个人学习、交流，请遵守当地法律法规,勿用于非法用途;请勿用于生产环境  
-> 声明：该项目已闭源，介意者请勿使用；如您需要开源代码，请附上您的Github Profile邮箱联系  
+> 声明：本项目是基于 FranzKafkaYu/x-ui 的优化版本，主要改进了代码质量和性能
 
 支持单端口多用户、多协议的 xray 面板，究极缝合怪    
 通过免费的Telegram bot方便快捷地进行监控、管理你的代理服务  
@@ -10,6 +10,36 @@
 欢迎大家使用并反馈意见或提交Pr,帮助项目更好的改善  
 如果您觉得本项目对您有所帮助,不妨给个star:star2:支持我  
 或者你恰巧有购买服务器的需求,可以通过文末的赞助部分支持我~ 
+
+# 优化内容
+
+1. 代码优化：
+   - 优化了 main.go：添加错误处理、优雅关闭功能、版本信息等
+   - 优化了 web.go：添加中间件、改进会话管理、并发控制
+   - 修复了 linter 错误
+   - 所有错误消息改为中文提示
+
+2. 服务重构：
+   - 将服务定义拆分到独立文件：xray.go、setting.go、inbound.go、user.go、panel.go、server.go
+   - 优化了服务之间的依赖关系
+   - 添加了完整的错误处理
+
+3. 依赖更新：
+   - 更新 Go 版本到 1.21
+   - 更新所有依赖到最新稳定版本
+   - 添加了必要的新依赖
+
+# 安装方式
+
+## 官方版本安装
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/install.sh)
+```
+
+## 优化版安装
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/875706361/x-ui_youhua/master/install.sh)
+```
 
 # 文档目录  
 - [功能介绍](#功能介绍)  
@@ -37,18 +67,6 @@
 在安装前请确保你的系统支持`bash`环境,且系统网络正常  
 
 &#x26A1;从原版升级也可使用该命令，数据不会丢失&#x26A1;
-
-```
-bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/install.sh)
-```    
-For English Users,please use the following command to install English supported version:  
-```
-bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/install_en.sh)
-```
-如需安装指定的版本,可以在上述命令中指定版本号,如指定版本为`0.3.4.4`,安装命令如下：    
-```
-bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/install.sh) 0.3.4.4   
-```
 
 # 效果预览  
 `面板使用`:  
@@ -154,12 +172,11 @@ bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/insta
 ————————————————
   15. 一键安装 bbr (最新内核)
   16. 一键申请SSL证书(acme申请)
- 
-面板状态: 已运行
-是否开机自启: 是
-xray 状态: 运行
-
-请输入选择 [0-16]: 
+  17. 配置定时任务
+————————————————
+  18. 备份面板配置
+  19. 恢复面板配置
+  20. 清除面板日志
 ```
 # 配置要求  
 ## 内存  
@@ -199,8 +216,7 @@ xray 状态: 运行
 # 致谢
 
 - [vaxilu/x-ui](https://github.com/vaxilu/x-ui)
-- [XTLS/Xray-core](https://github.com/XTLS/Xray-core)
-- [telegram-bot-api](https://github.com/go-telegram-bot-api/telegram-bot-api)  
+- [FranzKafkaYu/x-ui](https://github.com/FranzKafkaYu/x-ui)
 
 # 广告赞助  
 
