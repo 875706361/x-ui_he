@@ -44,18 +44,22 @@ func initEnvironment() error {
 }
 
 func initLogger() error {
+	var level logging.Level
+
 	switch config.GetLogLevel() {
 	case config.Debug:
-		logger.InitLogger(logging.DEBUG)
+		level = logging.DEBUG
 	case config.Info:
-		logger.InitLogger(logging.INFO)
+		level = logging.INFO
 	case config.Warn:
-		logger.InitLogger(logging.WARNING)
+		level = logging.WARNING
 	case config.Error:
-		logger.InitLogger(logging.ERROR)
+		level = logging.ERROR
 	default:
 		return fmt.Errorf("未知的日志级别: %s", config.GetLogLevel())
 	}
+
+	logger.InitLogger(level)
 	return nil
 }
 
@@ -74,17 +78,17 @@ func runWebServer() {
 		log.Fatal("初始化数据库失败:", err)
 	}
 
-	server := web.NewServer()
-	global.SetWebServer(server)
-
-	// 创建上下文用于优雅关闭
+	// 创建根上下文并添加取消功能
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	server := web.NewServer()
+	global.SetWebServer(server)
 
 	// 启动服务器
 	go func() {
 		if err := server.Start(); err != nil {
-			log.Printf("启动服务器失败: %v", err)
+			logger.Error("启动服务器失败: %v", err)
 			cancel()
 		}
 	}()
@@ -99,7 +103,7 @@ func runWebServer() {
 			switch sig {
 			case syscall.SIGHUP:
 				// 重新加载配置
-				log.Println("接收到 SIGHUP 信号，重新加载服务...")
+				logger.Info("接收到 SIGHUP 信号，重新加载服务...")
 				if err := server.Stop(); err != nil {
 					logger.Warning("停止服务器失败:", err)
 				}
@@ -107,30 +111,31 @@ func runWebServer() {
 				global.SetWebServer(server)
 				go func() {
 					if err := server.Start(); err != nil {
-						log.Printf("重启服务器失败: %v", err)
+						logger.Error("重启服务器失败: %v", err)
 						cancel()
 					}
 				}()
 			default:
 				// 优雅关闭
-				log.Printf("接收到信号 %v，开始优雅关闭...", sig)
+				logger.Info("接收到信号 %v，开始优雅关闭...", sig)
 				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer shutdownCancel()
 
 				if err := server.Stop(); err != nil {
-					log.Printf("关闭服务器时发生错误: %v", err)
+					logger.Error("关闭服务器时发生错误: %v", err)
 				}
 
 				// 等待关闭完成或超时
 				select {
 				case <-shutdownCtx.Done():
 					if shutdownCtx.Err() == context.DeadlineExceeded {
-						log.Println("关闭超时，强制退出")
+						logger.Warning("关闭超时，强制退出")
 					}
 				}
 				return
 			}
 		case <-ctx.Done():
+			logger.Info("上下文已取消，退出主循环")
 			return
 		}
 	}
@@ -204,6 +209,14 @@ func showBanner() {
 }
 
 func main() {
+	// 捕获panic
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("程序发生panic: %v\n", r)
+			os.Exit(1)
+		}
+	}()
+
 	if len(os.Args) < 2 {
 		showBanner()
 		runWebServer()
@@ -248,22 +261,22 @@ func main() {
 	switch os.Args[1] {
 	case "run":
 		if err := runCmd.Parse(os.Args[2:]); err != nil {
-			fmt.Printf("解析运行参数失败: %v\n", err)
+			fmt.Println("解析run命令参数失败:", err)
 			return
 		}
-		showBanner()
 		runWebServer()
 	case "v2-ui":
 		if err := v2uiCmd.Parse(os.Args[2:]); err != nil {
-			fmt.Printf("解析 v2-ui 参数失败: %v\n", err)
+			fmt.Println("解析v2-ui命令参数失败:", err)
 			return
 		}
-		if err := v2ui.MigrateFromV2UI(dbPath); err != nil {
-			fmt.Printf("从 v2-ui 迁移失败: %v\n", err)
+		err := v2ui.MigrateFromV2UI(dbPath)
+		if err != nil {
+			fmt.Println("从v2-ui迁移失败:", err)
 		}
 	case "setting":
 		if err := settingCmd.Parse(os.Args[2:]); err != nil {
-			fmt.Printf("解析设置参数失败: %v\n", err)
+			fmt.Println("解析setting命令参数失败:", err)
 			return
 		}
 		if reset {
@@ -272,12 +285,7 @@ func main() {
 			updateSetting(port, username, password)
 		}
 	default:
-		fmt.Println("请使用 'run'、'v2-ui' 或 'setting' 子命令")
-		fmt.Println()
-		runCmd.Usage()
-		fmt.Println()
-		v2uiCmd.Usage()
-		fmt.Println()
-		settingCmd.Usage()
+		fmt.Println("未知命令:", os.Args[1])
+		flag.Usage()
 	}
 }

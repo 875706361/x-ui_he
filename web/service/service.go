@@ -6,101 +6,74 @@
 // - panel.go: PanelService
 // - server.go: ServerService
 
+// 服务接口定义文件
+
 package service
 
 import (
-	"context"
-	"x-ui/logger"
+	"x-ui/xray"
 )
 
-type XrayService struct {
-	ctx context.Context
+// XrayService 定义Xray服务接口
+type XrayService interface {
+	// Xray状态管理
+	IsXrayRunning() bool
+	GetXrayErr() error
+	GetXrayResult() string
+	GetXrayVersion() string
+	
+	// 配置管理
+	GetXrayConfig() (*xray.Config, error)
+	GetXrayTraffic() (map[string]int64, error)
+	
+	// 操作
+	RestartXray(force bool) error
+	StopXray() error
+	SetToNeedRestart()
+	IsNeedRestartAndSetFalse() bool
+	InvalidateCache()
+	
+	// 设置依赖
+	SetInboundService(inboundService InboundService)
+	SetSettingService(settingService SettingService)
 }
 
-func NewXrayService(ctx context.Context) *XrayService {
-	return &XrayService{
-		ctx: ctx,
-	}
+// SettingService 定义设置服务接口
+type SettingService interface {
+	GetSecret() ([]byte, error)
+	GetBasePath() (string, error)
+	GetPort() (int, error)
+	GetListen() (string, error)
+	GetCertFile() (string, error)
+	GetKeyFile() (string, error)
+	GetXrayConfigTemplate() (string, error)
+	GetTimeLocation() (string, error)
+	ResetSettings() error
+	SetPort(port int) error
 }
 
-func (s *XrayService) IsXrayRunning() bool {
-	// 检查 Xray 是否正在运行
-	return true
+// InboundService 定义入站服务接口
+type InboundService interface {
+	GetAllInbounds() ([]Inbound, error)
+	AddTraffic(traffics map[string]int64) error
+	DisableInvalidInbounds() (int, error)
+	DisableExhaustedInbounds() (int, error)
 }
 
-func (s *XrayService) GetXrayTraffic() (map[string]int64, error) {
-	// 获取 Xray 流量统计
-	return make(map[string]int64), nil
+// ServerService 定义服务器状态服务接口
+type ServerService interface {
+	GetStatus(lastStatus *Status) *Status
+	GetXrayVersions() ([]string, error)
+	UpdateXray(version string) error
+	SetXrayService(xrayService XrayService)
 }
 
-type SettingService struct {
-	ctx context.Context
-}
-
-func NewSettingService(ctx context.Context) *SettingService {
-	return &SettingService{
-		ctx: ctx,
-	}
-}
-
-type InboundService struct {
-	ctx context.Context
-}
-
-func NewInboundService(ctx context.Context) *InboundService {
-	return &InboundService{
-		ctx: ctx,
-	}
-}
-
-func (s *SettingService) GetSecret() ([]byte, error) {
-	// 从数据库获取密钥，如果不存在则生成新的
-	return []byte("your-secret-key"), nil
-}
-
-func (s *SettingService) GetBasePath() (string, error) {
-	// 从数据库获取基础路径，如果不存在则返回默认值
-	return "/", nil
-}
-
-func (s *SettingService) GetTimeLocation() (string, error) {
-	// 从数据库获取时区设置
-	return "Asia/Shanghai", nil
-}
-
-func (s *SettingService) ResetSettings() error {
-	// 重置所有设置到默认值
-	logger.Info("重置所有设置到默认值")
-	return nil
-}
-
-func (s *SettingService) SetPort(port int) error {
-	// 设置面板端口
-	logger.Info("设置面板端口:", port)
-	return nil
-}
-
-func (s *SettingService) GetPort() (int, error) {
-	// 获取面板端口
-	return 54321, nil
-}
-
-func (s *SettingService) GetListen() (string, error) {
-	// 获取监听地址
-	return "0.0.0.0", nil
-}
-
-func (s *SettingService) GetCertFile() (string, error) {
-	// 获取证书文件路径
-	return "", nil
-}
-
-func (s *SettingService) GetKeyFile() (string, error) {
-	// 获取密钥文件路径
-	return "", nil
-}
-
-func (s *InboundService) AddTraffic(traffics map[string]int64) error {
-	// 添加流量统计数据到数据库
-	return nil
+// Inbound 入站配置
+type Inbound struct {
+	ID      int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Enable  bool   `json:"enable"`
+	// 其他必要字段...
+	
+	// 生成Xray配置
+	GenXrayInboundConfig() *xray.InboundConfig
 }

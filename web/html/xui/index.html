@@ -94,7 +94,13 @@
                     </a-col>
                     <a-col :sm="24" :md="12">
                         <a-card hoverable>
-                            系统负载: [[ status.loads[0] ]] | [[ status.loads[1] ]] | [[ status.loads[2] ]]
+                            系统负载: 
+                            <template v-if="status.loads && (status.loads[0] || status.loads[1] || status.loads[2])">
+                                [[ status.loads[0] ]] | [[ status.loads[1] ]] | [[ status.loads[2] ]]
+                            </template>
+                            <template v-else>
+                                <a-tag color="blue">获取中...</a-tag>
+                            </template>
                         </a-card>
                     </a-col>
                     <a-col :sm="24" :md="12">
@@ -217,7 +223,7 @@
         constructor(data) {
             this.cpu = new CurTotal(0, 0);
             this.disk = new CurTotal(0, 0);
-            this.loads = [0, 0, 0];
+            this.loads = [0.01, 0.01, 0.01];
             this.mem = new CurTotal(0, 0);
             this.netIO = {up: 0, down: 0};
             this.netTraffic = {sent: 0, recv: 0};
@@ -232,7 +238,10 @@
             }
             this.cpu = new CurTotal(data.cpu, 100);
             this.disk = new CurTotal(data.disk.current, data.disk.total);
-            this.loads = data.loads.map(load => toFixed(load, 2));
+            this.loads = data.loads.map(load => {
+                const val = toFixed(load, 2);
+                return val <= 0 ? 0.01 : val;
+            });
             this.mem = new CurTotal(data.mem.current, data.mem.total);
             this.netIO = data.netIO;
             this.netTraffic = data.netTraffic;
