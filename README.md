@@ -38,7 +38,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/insta
 
 ## 优化版安装
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/875706361/x-ui_youhua/master/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/875706361/x-ui_he/master/install.sh)
 ```
 
 # 文档目录  
