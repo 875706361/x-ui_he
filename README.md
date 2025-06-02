@@ -38,7 +38,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/install.sh
 
 ## 优化版安装
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/875706361/x-ui_he/master/install.sh)
 ```
 
 # 文档目录  
