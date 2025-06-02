@@ -495,6 +495,7 @@ class StreamSettings extends XrayCommonClass {
                 httpSettings=new HttpStreamSettings(),
                 quicSettings=new QuicStreamSettings(),
                 grpcSettings=new GrpcStreamSettings(),
+                realitySettings=new RealityStreamSettings(),
                 ) {
         super();
         this.network = network;
@@ -506,6 +507,7 @@ class StreamSettings extends XrayCommonClass {
         this.http = httpSettings;
         this.quic = quicSettings;
         this.grpc = grpcSettings;
+        this.reality = realitySettings;
     }
 
     get isTls() {
@@ -521,12 +523,24 @@ class StreamSettings extends XrayCommonClass {
     }
 
     get isXTls() {
-        return this.security === "xtls";
+        return this.security === 'xtls';
     }
 
     set isXTls(isXTls) {
         if (isXTls) {
             this.security = 'xtls';
+        } else {
+            this.security = 'none';
+        }
+    }
+
+    get isReality() {
+        return this.security === 'reality';
+    }
+
+    set isReality(isReality) {
+        if (isReality) {
+            this.security = 'reality';
         } else {
             this.security = 'none';
         }
@@ -549,6 +563,7 @@ class StreamSettings extends XrayCommonClass {
             HttpStreamSettings.fromJson(json.httpSettings),
             QuicStreamSettings.fromJson(json.quicSettings),
             GrpcStreamSettings.fromJson(json.grpcSettings),
+            RealityStreamSettings.fromJson(json.realitySettings),
         );
     }
 
@@ -559,6 +574,7 @@ class StreamSettings extends XrayCommonClass {
             security: this.security,
             tlsSettings: this.isTls ? this.tls.toJson() : undefined,
             xtlsSettings: this.isXTls ? this.tls.toJson() : undefined,
+            realitySettings: this.isReality ? this.reality.toJson() : undefined,
             tcpSettings: network === 'tcp' ? this.tcp.toJson() : undefined,
             kcpSettings: network === 'kcp' ? this.kcp.toJson() : undefined,
             wsSettings: network === 'ws' ? this.ws.toJson() : undefined,
@@ -809,26 +825,11 @@ class Inbound extends XrayCommonClass {
     }
 
     canEnableTls() {
-        switch (this.protocol) {
-            case Protocols.VMESS:
-            case Protocols.VLESS:
-            case Protocols.TROJAN:
-            case Protocols.SHADOWSOCKS:
-                break;
-            default:
-                return false;
-        }
-
-        switch (this.network) {
-            case "tcp":
-            case "ws":
-            case "http":
-            case "quic":
-            case "grpc":
-                return true;
-            default:
-                return false;
-        }
+        return this.canEnableStream()
+            && this.protocol !== Protocols.SHADOWSOCKS
+            && this.protocol !== Protocols.DOKODEMO
+            && this.protocol !== Protocols.SOCKS
+            && this.protocol !== Protocols.HTTP;
     }
 
     canSetTls() {
@@ -836,25 +837,21 @@ class Inbound extends XrayCommonClass {
     }
 
     canEnableXTls() {
-        switch (this.protocol) {
-            case Protocols.VLESS:
-            case Protocols.TROJAN:
-                break;
-            default:
-                return false;
-        }
-        return this.network === "tcp";
+        return this.canEnableStream()
+            && (this.protocol === Protocols.VLESS || this.protocol === Protocols.TROJAN)
+            && (this.network === 'tcp' || this.network === 'kcp');
+    }
+
+    // 添加Reality支持
+    canEnableReality() {
+        return this.canEnableStream()
+            && (this.protocol === Protocols.VLESS || this.protocol === Protocols.TROJAN)
+            && (this.network === 'tcp' || this.network === 'kcp' || this.network === 'http' || this.network === 'grpc');
     }
 
     canEnableStream() {
-        switch (this.protocol) {
-            case Protocols.VMESS:
-            case Protocols.VLESS:
-            case Protocols.SHADOWSOCKS:
-                return true;
-            default:
-                return false;
-        }
+        return this.protocol !== Protocols.DOKODEMO
+            && this.protocol !== Protocols.MTPROTO;
     }
 
     canSniffing() {
@@ -947,25 +944,23 @@ class Inbound extends XrayCommonClass {
         const settings = this.settings;
         const uuid = settings.vlesses[0].id;
         const port = this.port;
-        const type = this.stream.network;
+        const type = this.network;
         const params = new Map();
-        params.set("type", this.stream.network);
-        if (this.xtls) {
-            params.set("security", "xtls");
-        } else {
-            params.set("security", this.stream.security);
-        }
-        switch (type) {
+        params.set("type", this.network);
+        params.set("encryption", "none");
+        
+        switch (this.network) {
             case "tcp":
                 const tcp = this.stream.tcp;
                 if (tcp.type === 'http') {
                     const request = tcp.request;
-                    params.set("path", request.path.join(','));
+                    params.set("path", request.path[0]);
                     const index = request.headers.findIndex(header => header.name.toLowerCase() === 'host');
                     if (index >= 0) {
                         const host = request.headers[index].value;
                         params.set("host", host);
                     }
+                    params.set("headerType", 'http');
                 }
                 break;
             case "kcp":
@@ -985,7 +980,7 @@ class Inbound extends XrayCommonClass {
             case "http":
                 const http = this.stream.http;
                 params.set("path", http.path);
-                params.set("host", http.host);
+                params.set("host", http.host[0]);
                 break;
             case "quic":
                 const quic = this.stream.quic;
@@ -999,21 +994,35 @@ class Inbound extends XrayCommonClass {
                 break;
         }
 
-        if (this.stream.security === 'tls') {
-            if (!ObjectUtil.isEmpty(this.stream.tls.server)) {
-                address = this.stream.tls.server;
-                params.set("sni", address);
-            }
+        if (this.stream.isTls) {
+            params.set("security", "tls");
+            params.set("sni", this.stream.tls.server);
         }
-
-        if (this.xtls) {
-            params.set("flow", this.settings.vlesses[0].flow);
+        if (this.stream.isXTls) {
+            params.set("security", "xtls");
+            params.set("sni", this.stream.tls.server);
+            params.set("flow", settings.vlesses[0].flow);
+        }
+        // 添加Reality支持
+        if (this.stream.isReality) {
+            params.set("security", "reality");
+            params.set("pbk", this.stream.reality.settings.publicKey);
+            params.set("fp", this.stream.reality.settings.fingerprint);
+            if (!ObjectUtil.isEmpty(this.stream.reality.serverNames)) {
+                params.set("sni", this.stream.reality.serverNames.split(",")[0]);
+            }
+            if (this.stream.reality.shortIds.length > 0) {
+                params.set("sid", this.stream.reality.shortIds[0]);
+            }
+            if (!ObjectUtil.isEmpty(this.stream.reality.settings.spiderX)) {
+                params.set("spx", this.stream.reality.settings.spiderX);
+            }
         }
 
         const link = `vless://${uuid}@${address}:${port}`;
         const url = new URL(link);
         for (const [key, value] of params) {
-            url.searchParams.set(key, value)
+            url.searchParams.set(key, value);
         }
         url.hash = encodeURIComponent(remark);
         return url.toString();
@@ -1030,8 +1039,89 @@ class Inbound extends XrayCommonClass {
     }
 
     genTrojanLink(address='', remark='') {
-        let settings = this.settings;
-        return `trojan://${settings.clients[0].password}@${address}:${this.port}#${encodeURIComponent(remark)}`;
+        const settings = this.settings;
+        const password = settings.clients[0].password;
+        const port = this.port;
+        const params = new Map();
+        params.set("type", this.network);
+        
+        switch (this.network) {
+            case "tcp":
+                const tcp = this.stream.tcp;
+                if (tcp.type === 'http') {
+                    const request = tcp.request;
+                    params.set("path", request.path[0]);
+                    const index = request.headers.findIndex(header => header.name.toLowerCase() === 'host');
+                    if (index >= 0) {
+                        const host = request.headers[index].value;
+                        params.set("host", host);
+                    }
+                    params.set("headerType", 'http');
+                }
+                break;
+            case "kcp":
+                const kcp = this.stream.kcp;
+                params.set("headerType", kcp.type);
+                params.set("seed", kcp.seed);
+                break;
+            case "ws":
+                const ws = this.stream.ws;
+                params.set("path", ws.path);
+                const index = ws.headers.findIndex(header => header.name.toLowerCase() === 'host');
+                if (index >= 0) {
+                    const host = ws.headers[index].value;
+                    params.set("host", host);
+                }
+                break;
+            case "http":
+                const http = this.stream.http;
+                params.set("path", http.path);
+                params.set("host", http.host[0]);
+                break;
+            case "quic":
+                const quic = this.stream.quic;
+                params.set("quicSecurity", quic.security);
+                params.set("key", quic.key);
+                params.set("headerType", quic.type);
+                break;
+            case "grpc":
+                const grpc = this.stream.grpc;
+                params.set("serviceName", grpc.serviceName);
+                break;
+        }
+
+        if (this.stream.isTls) {
+            params.set("security", "tls");
+            params.set("sni", this.stream.tls.server);
+        }
+        if (this.stream.isXTls) {
+            params.set("security", "xtls");
+            params.set("sni", this.stream.tls.server);
+            params.set("flow", settings.clients[0].flow);
+        }
+        // 添加Reality支持
+        if (this.stream.isReality) {
+            params.set("security", "reality");
+            params.set("pbk", this.stream.reality.settings.publicKey);
+            params.set("fp", this.stream.reality.settings.fingerprint);
+            if (!ObjectUtil.isEmpty(this.stream.reality.serverNames)) {
+                params.set("sni", this.stream.reality.serverNames.split(",")[0]);
+            }
+            if (this.stream.reality.shortIds.length > 0) {
+                params.set("sid", this.stream.reality.shortIds[0]);
+            }
+            if (!ObjectUtil.isEmpty(this.stream.reality.settings.spiderX)) {
+                params.set("spx", this.stream.reality.settings.spiderX);
+            }
+        }
+
+        const link = `trojan://${password}@${address}:${port}`;
+        const url = new URL(link);
+        for (const [key, value] of params) {
+            url.searchParams.set(key, value);
+        }
+        url.hash = encodeURIComponent(remark);
+        return url.toString();
     }
 
     genLink(address='', remark='') {

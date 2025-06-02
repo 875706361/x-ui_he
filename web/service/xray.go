@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"x-ui/logger"
@@ -327,4 +329,34 @@ func (s *XrayServiceImpl) InvalidateCache() {
 	// 做一次GC
 	runtime.GC()
 	lastGCTime = time.Now()
+}
+
+// 生成Reality密钥对
+func (s *XrayService) GenerateRealityKeyPair() (string, string, error) {
+	// 调用xray命令生成密钥对
+	cmd := exec.Command("xray", "x25519")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", err
+	}
+
+	// 解析输出
+	outputStr := string(output)
+	lines := strings.Split(outputStr, "\n")
+
+	// 提取私钥和公钥
+	var privateKey, publicKey string
+	for _, line := range lines {
+		if strings.Contains(line, "Private key:") {
+			privateKey = strings.TrimSpace(strings.TrimPrefix(line, "Private key:"))
+		} else if strings.Contains(line, "Public key:") {
+			publicKey = strings.TrimSpace(strings.TrimPrefix(line, "Public key:"))
+		}
+	}
+
+	if privateKey == "" || publicKey == "" {
+		return "", "", errors.New("无法生成Reality密钥对")
+	}
+
+	return privateKey, publicKey, nil
 }
