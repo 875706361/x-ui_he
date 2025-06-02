@@ -182,7 +182,7 @@ install_x-ui() {
 
     if [ $# == 0 ]; then
         echo -e "${yellow}开始检查最新版本...${plain}"
-        last_version=$(curl -Ls "https://api.github.com/repos/FranzKafkaYu/x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        last_version=$(curl -Ls "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
             echo -e "${red}检测版本失败，请检查网络或稍后再试${plain}"
             exit 1
@@ -190,14 +190,14 @@ install_x-ui() {
         echo -e "${green}检测到最新版本：${last_version}${plain}"
         
         echo -e "${yellow}开始下载 x-ui...${plain}"
-        wget -N --no-check-certificate -O /usr/local/x-ui-linux-${arch}.tar.gz https://github.com/FranzKafkaYu/x-ui/releases/download/${last_version}/x-ui-linux-${arch}.tar.gz
+        wget -N --no-check-certificate -O /usr/local/x-ui-linux-${arch}.tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${last_version}/x-ui-linux-${arch}.tar.gz
         if [[ $? -ne 0 ]]; then
             echo -e "${red}下载失败，请检查网络或手动下载${plain}"
             exit 1
         fi
     else
         last_version=$1
-        url="https://github.com/FranzKafkaYu/x-ui/releases/download/${last_version}/x-ui-linux-${arch}.tar.gz"
+        url="https://github.com/MHSanaei/3x-ui/releases/download/${last_version}/x-ui-linux-${arch}.tar.gz"
         echo -e "${yellow}开始下载 x-ui v${last_version}...${plain}"
         wget -N --no-check-certificate -O /usr/local/x-ui-linux-${arch}.tar.gz ${url}
         if [[ $? -ne 0 ]]; then
@@ -218,7 +218,7 @@ install_x-ui() {
     cp -f x-ui.service /etc/systemd/system/
     
     echo -e "${yellow}开始下载脚本文件...${plain}"
-    wget --no-check-certificate -O /usr/bin/x-ui https://raw.githubusercontent.com/875706361/x-ui_he/master/x-ui.sh
+    wget --no-check-certificate -O /usr/bin/x-ui https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh
     if [[ $? -ne 0 ]]; then
         echo -e "${red}下载脚本失败，请检查网络${plain}"
         exit 1
