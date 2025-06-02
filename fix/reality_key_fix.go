@@ -134,7 +134,7 @@ func main() {
 
 	fixedCount := 0
 	// 逐个处理入站配置
-	for i, inbound := range inbounds {
+	for _, inbound := range inbounds {
 		// 只处理VLESS和TROJAN协议，因为只有这些协议支持Reality
 		if inbound.Protocol != "vless" && inbound.Protocol != "trojan" {
 			continue

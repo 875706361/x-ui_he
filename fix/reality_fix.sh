@@ -57,7 +57,29 @@ if ! command -v go &> /dev/null; then
     fi
 fi
 
+echo -e "${YELLOW}正在初始化Go模块...${NC}"
+# 初始化Go模块
+go mod init reality_key_fix
+if [ $? -ne 0 ]; then
+    echo -e "${RED}初始化Go模块失败${NC}"
+    exit 1
+fi
+
+echo -e "${YELLOW}正在安装依赖包...${NC}"
+# 安装依赖
+go get gorm.io/driver/sqlite
+go get gorm.io/gorm
+if [ $? -ne 0 ]; then
+    echo -e "${RED}安装依赖包失败${NC}"
+    exit 1
+fi
+
 echo -e "${YELLOW}正在编译修复工具...${NC}"
+# 打印Go模块环境信息
+go env
+# 生成并更新go.mod文件
+go mod tidy
+# 编译
 go build -o reality_key_fix reality_key_fix.go
 
 if [ $? -ne 0 ]; then
