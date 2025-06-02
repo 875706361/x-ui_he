@@ -218,7 +218,7 @@ install_x-ui() {
     cp -f x-ui.service /etc/systemd/system/
     
     echo -e "${yellow}开始下载脚本文件...${plain}"
-    wget --no-check-certificate -O /usr/bin/x-ui https://raw.githubusercontent.com/875706361/x-ui_youhua/master/x-ui.sh
+    wget --no-check-certificate -O /usr/bin/x-ui https://raw.githubusercontent.com/875706361/x-ui_he/master/x-ui.sh
     if [[ $? -ne 0 ]]; then
         echo -e "${red}下载脚本失败，请检查网络${plain}"
         exit 1
